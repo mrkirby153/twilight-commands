@@ -10,5 +10,9 @@ twilight-model = "0.17.0"
 twilight-util = { version = "0.17.0", features = ["builder"] }
 twilight_commands_derive = { path = "./twilight_commands_derive" }
 
+[features]
+default = []
+executor = []
+
 [workspace]
 members = ["twilight_commands_derive"]
