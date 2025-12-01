@@ -162,7 +162,7 @@ where
         }
     }
 }
-#[derive(Default)]
+
 pub struct CommandExecutor<S>
 where
     S: Send + Sync + 'static,
@@ -328,5 +328,16 @@ where
 {
     fn from(executor: &CommandExecutor<S>) -> Self {
         executor.build_commands()
+    }
+}
+
+impl<S> Default for CommandExecutor<S>
+where
+    S: Send + Sync + 'static,
+{
+    fn default() -> Self {
+        CommandExecutor {
+            commands: CommandTree::new(),
+        }
     }
 }

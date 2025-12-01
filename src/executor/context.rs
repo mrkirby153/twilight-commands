@@ -23,7 +23,6 @@ type AsyncHandler<T> = Box<
 >;
 
 /// Commands that can be used via a context menu.
-#[derive(Default)]
 pub struct ContextCommands<T> {
     commands: HashMap<String, Arc<AsyncHandler<T>>>,
 }
@@ -95,5 +94,16 @@ impl<S> From<&ContextCommands<S>> for Vec<Command> {
                     .build()
             })
             .collect()
+    }
+}
+
+impl<S> Default for ContextCommands<S>
+where
+    S: Send + Sync + 'static,
+{
+    fn default() -> Self {
+        Self {
+            commands: HashMap::new(),
+        }
     }
 }
