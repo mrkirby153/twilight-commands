@@ -1,10 +1,12 @@
 use anyhow::Result;
 use darling::FromField;
+use darling::util::PathList;
 use darling::{FromDeriveInput, ast::Data};
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::quote;
-use syn::{GenericArgument, PathArguments, Type, parse_macro_input};
+use syn::parse_macro_input;
+use syn::{AngleBracketedGenericArguments, GenericArgument, PathArguments, Type};
 use thiserror::Error;
 
 #[derive(Debug, FromDeriveInput)]
@@ -22,10 +24,15 @@ struct CommandReceiver {
 struct OptionReceiver {
     ident: Option<syn::Ident>,
     ty: syn::Type,
+    /// Override the name of the command option
     #[darling(default)]
     name: Option<String>,
+    /// Set the description of the command option
     #[darling(default)]
     description: Option<String>,
+    /// For channel options, restrict to specific channel types
+    #[darling(default)]
+    channel_types: Option<PathList>,
 }
 
 pub fn derive(input: TokenStream) -> TokenStream {
@@ -115,17 +122,36 @@ fn field_option(field: &OptionReceiver) -> proc_macro2::TokenStream {
     let default_description = "No description provided".to_string();
     let description = field.description.as_ref().unwrap_or(&default_description);
     let ty = &field.ty;
-    let ty = match get_inner_option_type(&field.ty) {
-        Some(inner) => quote! {
-            Option::<#inner>
-        },
-        None => quote! {
-            #ty
-        },
-    };
 
-    quote! {
-        #ty::to_option().name(#name).description(#description)
+    if field.channel_types.is_some() && !validate_channel_type(ty) {
+        return darling::Error::custom(
+            "channel_types can only be specified for fields of type Id<ChannelMarker>",
+        )
+        .write_errors();
+    }
+
+    let ty = add_turbofish(ty);
+
+    let channel_types = field.channel_types.as_ref().map(|types| {
+        let types = types
+            .iter()
+            .map(|path| quote! { ::twilight_model::channel::ChannelType::#path });
+        quote! {
+            vec![#(#types),*]
+        }
+    });
+
+    match channel_types {
+        Some(channel_types) => {
+            quote! {
+                #ty::to_option().name(#name).description(#description).channel_types(#channel_types)
+            }
+        }
+        None => {
+            quote! {
+                #ty::to_option().name(#name).description(#description)
+            }
+        }
     }
 }
 
@@ -164,19 +190,68 @@ fn get_name(field: &OptionReceiver) -> Result<String, GetNameError> {
     }
 }
 
-/// Returns the inner option type or `None` if this is not an option
-fn get_inner_option_type(ty: &syn::Type) -> Option<&syn::Type> {
-    if let Type::Path(type_path) = ty
-        && let Some(segment) = type_path.path.segments.last()
-        && segment.ident == "Option"
-        && let PathArguments::AngleBracketed(angle_bracketed) = &segment.arguments
-        && let Some(GenericArgument::Type(inner_type)) = angle_bracketed.args.first()
-    {
-        return Some(inner_type);
+fn add_turbofish(ty: &Type) -> proc_macro2::TokenStream {
+    match ty {
+        Type::Path(type_path) => {
+            let path = &type_path.path;
+            let segments = path.segments.iter().map(|segment| {
+                let ident = &segment.ident;
+                match &segment.arguments {
+                    PathArguments::None => quote! { #ident },
+                    PathArguments::AngleBracketed(args) => {
+                        // Add turbofish for angle bracketed generics
+                        let args = transform_generic_arguments(args);
+                        quote! { #ident::#args }
+                    }
+                    PathArguments::Parenthesized(args) => {
+                        // Keep parenthesized as-is (for Fn traits)
+                        quote! { #ident #args }
+                    }
+                }
+            });
+
+            if path.leading_colon.is_some() {
+                quote! { ::#(#segments)::* }
+            } else {
+                quote! { #(#segments)::* }
+            }
+        }
+        _ => quote! { #ty }, // For other type variants, leave as-is
     }
-    None
 }
 
+fn transform_generic_arguments(args: &AngleBracketedGenericArguments) -> proc_macro2::TokenStream {
+    let args = args.args.iter().map(|arg| {
+        match arg {
+            GenericArgument::Type(ty) => {
+                // Recursively handle nested types
+                add_turbofish(ty)
+            }
+            // Handle other variants as needed
+            _ => quote! { #arg },
+        }
+    });
+
+    quote! { <#(#args),*> }
+}
+
+fn validate_channel_type(type_: &Type) -> bool {
+    match type_ {
+        Type::Path(type_path) => {
+            let path = &type_path.path;
+            if let Some(segment) = path.segments.last()
+                && segment.ident == "Id"
+                && let PathArguments::AngleBracketed(args) = &segment.arguments
+                && let Some(GenericArgument::Type(Type::Path(inner_type_path))) = args.args.first()
+                && let Some(inner_segment) = inner_type_path.path.segments.last()
+            {
+                return inner_segment.ident == "ChannelMarker";
+            }
+            false
+        }
+        _ => false,
+    }
+}
 impl GetNameError {
     fn to_compile_error(&self) -> proc_macro2::TokenStream {
         let message = self.to_string();

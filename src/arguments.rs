@@ -177,36 +177,3 @@ impl From<CommandOption> for twilight_model::application::command::CommandOption
         }
     }
 }
-
-// --- Implementations for common types ---
-impl ArgumentConverter for String {
-    fn convert(data: &CommandOptionValue) -> Result<Self> {
-        if let CommandOptionValue::String(value) = data {
-            Ok(value.clone())
-        } else {
-            Err(anyhow!(Error::InvalidType))
-        }
-    }
-}
-
-impl ToOption for String {
-    fn to_option() -> CommandOption {
-        CommandOption::new(CommandOptionType::String)
-    }
-}
-
-impl ArgumentConverter for i32 {
-    fn convert(data: &CommandOptionValue) -> Result<Self> {
-        if let CommandOptionValue::Integer(value) = data {
-            Ok(*value as i32)
-        } else {
-            Err(anyhow!(Error::InvalidType))
-        }
-    }
-}
-
-impl ToOption for i32 {
-    fn to_option() -> CommandOption {
-        CommandOption::new(CommandOptionType::Integer)
-    }
-}

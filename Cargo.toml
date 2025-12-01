@@ -13,6 +13,7 @@ twilight_commands_derive = { path = "./twilight_commands_derive" }
 [features]
 default = []
 executor = []
+argument_converters = []
 
 [workspace]
 members = ["twilight_commands_derive"]
